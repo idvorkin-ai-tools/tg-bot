@@ -3,13 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
+var rootCmd = &cobra.Command{
+	Use:   "tg-bot",
+	Short: "Telegram bridge for Claude Code",
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tg-bot <command> [args]")
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "not implemented:", os.Args[1])
-	os.Exit(1)
 }

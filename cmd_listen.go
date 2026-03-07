@@ -42,8 +42,17 @@ func runListen(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create bot: %w", err)
 	}
 
+	owner := ownerID()
+	if owner != 0 {
+		log.Printf("filtering messages to owner_id=%d", owner)
+	}
+
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		msg := c.Message()
+		if owner != 0 && msg.Sender.ID != owner {
+			log.Printf("[ignored] %s (id=%d): %s", msg.Sender.FirstName, msg.Sender.ID, msg.Text)
+			return nil
+		}
 		log.Printf("[%s] %s: %s", msg.Chat.Title, msg.Sender.FirstName, msg.Text)
 
 		chatType := "private"

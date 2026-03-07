@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -21,4 +22,14 @@ func dbPath() string {
 
 func botToken() string {
 	return os.Getenv("TELEGRAM_BOT_TOKEN")
+}
+
+func ownerID() int64 {
+	s := os.Getenv("TGBOT_OWNER_ID")
+	if s == "" {
+		return 0
+	}
+	var id int64
+	fmt.Sscanf(s, "%d", &id)
+	return id
 }

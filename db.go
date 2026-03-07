@@ -13,6 +13,7 @@ type Message struct {
 	SenderName    string `json:"sender_name" db:"sender_name"`
 	SenderID      int64  `json:"sender_id" db:"sender_id"`
 	Content       string `json:"content" db:"content"`
+	VoicePath     string `json:"voice_path,omitempty" db:"voice_path"`
 	Timestamp     string `json:"timestamp" db:"timestamp"`
 	Read          int    `json:"-" db:"read"`
 }
@@ -43,6 +44,7 @@ func OpenDB(path string) (*DB, error) {
 			sender_name TEXT,
 			sender_id INTEGER,
 			content TEXT,
+			voice_path TEXT DEFAULT '',
 			timestamp TEXT,
 			read INTEGER DEFAULT 0
 		);
@@ -54,6 +56,8 @@ func OpenDB(path string) (*DB, error) {
 			last_seen TEXT
 		);
 	`)
+	// Migration: add voice_path if missing (existing DBs)
+	conn.Exec(`ALTER TABLE messages ADD COLUMN voice_path TEXT DEFAULT ''`)
 	return &DB{conn: conn}, nil
 }
 
@@ -63,9 +67,9 @@ func (db *DB) Close() error {
 
 func (db *DB) InsertMessage(m Message) error {
 	_, err := db.conn.Exec(
-		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.Timestamp,
+		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, voice_path, timestamp)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.VoicePath, m.Timestamp,
 	)
 	return err
 }

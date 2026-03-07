@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +22,39 @@ var listenCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(listenCmd)
+}
+
+func voiceDir() string {
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		home, _ := os.UserHomeDir()
+		dataDir = filepath.Join(home, ".local", "share")
+	}
+	dir := filepath.Join(dataDir, "tg-bot", "voice")
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func upsertChatFromMsg(db *DB, msg *tele.Message) {
+	chatType := "private"
+	if msg.Chat.Type == tele.ChatGroup || msg.Chat.Type == tele.ChatSuperGroup {
+		chatType = string(msg.Chat.Type)
+	}
+	db.UpsertChat(Chat{
+		ChatID:   msg.Chat.ID,
+		ChatType: chatType,
+		Title:    msg.Chat.Title,
+		IsForum:  msg.Chat.IsForum,
+		LastSeen: msg.Time().UTC().Format(time.RFC3339),
+	})
+}
+
+func topicFromMsg(msg *tele.Message) *int64 {
+	if msg.ThreadID != 0 {
+		tid := int64(msg.ThreadID)
+		return &tid
+	}
+	return nil
 }
 
 func runListen(cmd *cobra.Command, args []string) error {
@@ -55,31 +90,66 @@ func runListen(cmd *cobra.Command, args []string) error {
 		}
 		log.Printf("[%s] %s: %s", msg.Chat.Title, msg.Sender.FirstName, msg.Text)
 
-		chatType := "private"
-		if msg.Chat.Type == tele.ChatGroup || msg.Chat.Type == tele.ChatSuperGroup {
-			chatType = string(msg.Chat.Type)
-		}
-		db.UpsertChat(Chat{
-			ChatID:   msg.Chat.ID,
-			ChatType: chatType,
-			Title:    msg.Chat.Title,
-			IsForum:  msg.Chat.IsForum,
-			LastSeen: msg.Time().UTC().Format(time.RFC3339),
-		})
+		upsertChatFromMsg(db, msg)
 
-		var topicID *int64
-		if msg.ThreadID != 0 {
-			tid := int64(msg.ThreadID)
-			topicID = &tid
+		return db.InsertMessage(Message{
+			TelegramMsgID: int64(msg.ID),
+			ChatID:        msg.Chat.ID,
+			TopicID:       topicFromMsg(msg),
+			SenderName:    msg.Sender.FirstName,
+			SenderID:      msg.Sender.ID,
+			Content:       msg.Text,
+			Timestamp:     msg.Time().UTC().Format(time.RFC3339),
+		})
+	})
+
+	bot.Handle(tele.OnVoice, func(c tele.Context) error {
+		msg := c.Message()
+		if owner != 0 && msg.Sender.ID != owner {
+			log.Printf("[ignored-voice] %s (id=%d)", msg.Sender.FirstName, msg.Sender.ID)
+			return nil
+		}
+		log.Printf("[%s] %s: [voice %ds]", msg.Chat.Title, msg.Sender.FirstName, msg.Voice.Duration)
+
+		// Download voice file
+		reader, err := bot.File(&msg.Voice.File)
+		if err != nil {
+			log.Printf("error downloading voice: %v", err)
+			return nil
+		}
+		defer reader.Close()
+
+		filename := fmt.Sprintf("%d_%d.ogg", msg.Chat.ID, msg.ID)
+		outPath := filepath.Join(voiceDir(), filename)
+		f, err := os.Create(outPath)
+		if err != nil {
+			log.Printf("error creating voice file: %v", err)
+			return nil
+		}
+		if _, err := io.Copy(f, reader); err != nil {
+			f.Close()
+			log.Printf("error saving voice file: %v", err)
+			return nil
+		}
+		f.Close()
+
+		log.Printf("saved voice to %s", outPath)
+
+		upsertChatFromMsg(db, msg)
+
+		content := "[voice message]"
+		if msg.Caption != "" {
+			content = msg.Caption
 		}
 
 		return db.InsertMessage(Message{
 			TelegramMsgID: int64(msg.ID),
 			ChatID:        msg.Chat.ID,
-			TopicID:       topicID,
+			TopicID:       topicFromMsg(msg),
 			SenderName:    msg.Sender.FirstName,
 			SenderID:      msg.Sender.ID,
-			Content:       msg.Text,
+			Content:       content,
+			VoicePath:     outPath,
 			Timestamp:     msg.Time().UTC().Format(time.RFC3339),
 		})
 	})

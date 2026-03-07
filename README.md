@@ -115,6 +115,70 @@ tmux new-session -d -s tgpoll \
 # Use /loop or cron to check /tmp/tg-bot-incoming.jsonl
 ```
 
+## Connecting a Claude Code Persona
+
+The real power is wiring a Claude Code skill (like a life coach, assistant, or any persona) to respond to Telegram messages. Here's how:
+
+### 1. Write a Claude Code skill
+
+Create a skill in `~/.claude/commands/my-bot.md` that defines the persona:
+
+```markdown
+# My Bot Persona
+
+You are [persona description]. When responding to messages:
+- [behavior guidelines]
+- [tone and style]
+- [what context to load]
+```
+
+### 2. Wire the cron prompt to your persona
+
+The cron prompt is what Claude Code executes each polling cycle. Include your persona instructions directly:
+
+```
+/loop 1m Check /tmp/tg-bot-incoming.jsonl for new Telegram messages.
+If there are unread messages, read them, clear the file, then respond
+conversationally as [Your Persona]. Send replies using
+TELEGRAM_BOT_TOKEN="..." tg-bot send <chat_id> "<reply>".
+Send typing indicator first.
+```
+
+### 3. Example: Larry (life coach bot)
+
+```bash
+# Start everything
+export TELEGRAM_BOT_TOKEN="..."
+export TGBOT_OWNER_ID="..."
+
+# Listener
+tmux new-session -d -s tgbot './tg-bot listen'
+
+# 5s polling loop
+tmux new-session -d -s tgpoll 'bash polling-loop.sh'
+
+# In Claude Code, start Larry and the message loop:
+# /larry
+# /loop 1m Check /tmp/tg-bot-incoming.jsonl for new Telegram messages.
+#   Respond as Larry (Igor's life coach). Use tg-bot send to reply.
+```
+
+Now messages to the Telegram bot get answered by Larry with full access to journals, goals, weekly reports, and coaching context.
+
+### How it works end-to-end
+
+```
+User sends "How's my week going?" on Telegram
+  → tg-bot listen receives it, stores in SQLite
+  → polling-loop.sh (every 5s) calls tg-bot poll, writes to .jsonl
+  → Claude Code cron (every 1m) reads .jsonl
+  → Claude Code responds as Larry, reads journals/goals for context
+  → tg-bot send delivers the reply to Telegram
+  → User sees Larry's response on their phone
+```
+
+The persona lives entirely in Claude Code — tg-bot is just the transport layer. Swap the persona by changing the cron prompt.
+
 ## CLI Reference
 
 | Command | Description | Output |

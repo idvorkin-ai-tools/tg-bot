@@ -27,11 +27,17 @@ func init() {
 func voiceDir() string {
 	dataDir := os.Getenv("XDG_DATA_HOME")
 	if dataDir == "" {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Printf("warning: cannot determine home directory: %v", err)
+			home = "/tmp"
+		}
 		dataDir = filepath.Join(home, ".local", "share")
 	}
 	dir := filepath.Join(dataDir, "tg-bot", "voice")
-	os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("warning: cannot create voice directory: %v", err)
+	}
 	return dir
 }
 

@@ -24,10 +24,13 @@ def transcribe(audio_path: str) -> str:
     if path.suffix != ".wav":
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             wav_path = tmp.name
-        subprocess.run(
+        conv = subprocess.run(
             ["ffmpeg", "-i", str(path), "-ar", "16000", "-ac", "1", wav_path, "-y"],
             capture_output=True,
         )
+        if conv.returncode != 0:
+            Path(wav_path).unlink(missing_ok=True)
+            raise RuntimeError(f"ffmpeg conversion failed: {conv.stderr.decode()}")
         result = get_model().recognize(wav_path)
         Path(wav_path).unlink(missing_ok=True)
         return result

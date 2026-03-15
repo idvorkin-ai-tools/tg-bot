@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 	tele "gopkg.in/telebot.v4"
@@ -50,6 +52,27 @@ var sendVoiceCmd = &cobra.Command{
 			"chat_id":    chatID,
 		})
 		fmt.Println(string(out))
+
+		// Store outgoing voice message in database
+		db, err := OpenDB(dbPath())
+		if err != nil {
+			log.Printf("warning: could not open db to store sent voice message: %v", err)
+			return nil
+		}
+		defer db.Close()
+
+		if err := db.InsertSentMessage(Message{
+			TelegramMsgID: int64(msg.ID),
+			ChatID:        chatID,
+			SenderName:    "tg-bot",
+			SenderID:      0,
+			Content:       "[voice message]",
+			VoicePath:     filePath,
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			log.Printf("warning: could not store sent voice message: %v", err)
+		}
+
 		return nil
 	},
 }

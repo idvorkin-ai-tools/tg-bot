@@ -16,6 +16,7 @@ type Message struct {
 	VoicePath     string `json:"voice_path,omitempty" db:"voice_path"`
 	Timestamp     string `json:"timestamp" db:"timestamp"`
 	Read          int    `json:"-" db:"read"`
+	Direction     string `json:"direction,omitempty" db:"direction"`
 }
 
 type Chat struct {
@@ -58,6 +59,8 @@ func OpenDB(path string) (*DB, error) {
 	`)
 	// Migration: add voice_path if missing (existing DBs)
 	conn.Exec(`ALTER TABLE messages ADD COLUMN voice_path TEXT DEFAULT ''`)
+	// Migration: add direction column (in=incoming, out=outgoing)
+	conn.Exec(`ALTER TABLE messages ADD COLUMN direction TEXT DEFAULT 'in'`)
 	return &DB{conn: conn}, nil
 }
 
@@ -66,12 +69,29 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) InsertMessage(m Message) error {
-	_, err := db.conn.Exec(
-		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, voice_path, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.VoicePath, m.Timestamp,
-	)
+	_, err := db.InsertMessageReturningID(m)
 	return err
+}
+
+func (db *DB) InsertMessageReturningID(m Message) (int64, error) {
+	dir := m.Direction
+	if dir == "" {
+		dir = "in"
+	}
+	res, err := db.conn.Exec(
+		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, voice_path, timestamp, direction)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.VoicePath, m.Timestamp, dir,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (db *DB) InsertSentMessage(m Message) error {
+	m.Direction = "out"
+	return db.InsertMessage(m)
 }
 
 func (db *DB) PollMessages(chatID int64) ([]Message, error) {

@@ -1,17 +1,25 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	tele "gopkg.in/telebot.v4"
+)
+
+var (
+	listenJSONLPath  string
+	listenTranscribe bool
 )
 
 var listenCmd = &cobra.Command{
@@ -21,6 +29,8 @@ var listenCmd = &cobra.Command{
 }
 
 func init() {
+	listenCmd.Flags().StringVar(&listenJSONLPath, "jsonl", "", "path to JSONL file for real-time message output")
+	listenCmd.Flags().BoolVar(&listenTranscribe, "transcribe", false, "transcribe voice messages before writing to JSONL")
 	rootCmd.AddCommand(listenCmd)
 }
 
@@ -63,6 +73,69 @@ func topicFromMsg(msg *tele.Message) *int64 {
 	return nil
 }
 
+// appendJSONL appends a Message as a JSON line to the file at path.
+// Uses file locking (flock) to prevent corruption from concurrent readers.
+func appendJSONL(path string, m Message) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open jsonl file: %w", err)
+	}
+	defer f.Close()
+
+	// Acquire exclusive lock
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("flock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	data, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("marshal message: %w", err)
+	}
+	data = append(data, '\n')
+
+	_, err = f.Write(data)
+	return err
+}
+
+// transcribeVoice runs transcribe.py on the given audio file and returns the
+// transcription text. Returns empty string if transcription is unavailable or fails.
+func transcribeVoice(voicePath string) string {
+	// Find transcribe.py next to the current executable
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("transcribe: cannot find executable path: %v", err)
+		return ""
+	}
+	scriptPath := filepath.Join(filepath.Dir(exePath), "transcribe.py")
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		// Also try current working directory
+		if wd, wdErr := os.Getwd(); wdErr == nil {
+			scriptPath = filepath.Join(wd, "transcribe.py")
+			if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+				log.Printf("transcribe: transcribe.py not found")
+				return ""
+			}
+		} else {
+			log.Printf("transcribe: transcribe.py not found")
+			return ""
+		}
+	}
+
+	cmd := exec.Command("uv", "run", scriptPath, voicePath)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		log.Printf("transcribe: failed: %v", err)
+		return ""
+	}
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return ""
+	}
+	return text
+}
+
 func runListen(cmd *cobra.Command, args []string) error {
 	token := botToken()
 	if token == "" {
@@ -87,6 +160,9 @@ func runListen(cmd *cobra.Command, args []string) error {
 	if owner != 0 {
 		log.Printf("filtering messages to owner_id=%d", owner)
 	}
+	if listenJSONLPath != "" {
+		log.Printf("writing messages to %s", listenJSONLPath)
+	}
 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		msg := c.Message()
@@ -98,7 +174,7 @@ func runListen(cmd *cobra.Command, args []string) error {
 
 		upsertChatFromMsg(db, msg)
 
-		return db.InsertMessage(Message{
+		m := Message{
 			TelegramMsgID: int64(msg.ID),
 			ChatID:        msg.Chat.ID,
 			TopicID:       topicFromMsg(msg),
@@ -106,7 +182,21 @@ func runListen(cmd *cobra.Command, args []string) error {
 			SenderID:      msg.Sender.ID,
 			Content:       msg.Text,
 			Timestamp:     msg.Time().UTC().Format(time.RFC3339),
-		})
+		}
+
+		id, err := db.InsertMessageReturningID(m)
+		if err != nil {
+			return err
+		}
+
+		if listenJSONLPath != "" {
+			m.ID = id
+			if err := appendJSONL(listenJSONLPath, m); err != nil {
+				log.Printf("error writing jsonl: %v", err)
+			}
+		}
+
+		return nil
 	})
 
 	bot.Handle(tele.OnVoice, func(c tele.Context) error {
@@ -148,7 +238,15 @@ func runListen(cmd *cobra.Command, args []string) error {
 			content = msg.Caption
 		}
 
-		return db.InsertMessage(Message{
+		// Transcribe if requested and content is still the default placeholder
+		if listenTranscribe && content == "[voice message]" {
+			if transcribed := transcribeVoice(outPath); transcribed != "" {
+				content = transcribed
+				log.Printf("transcribed voice: %s", content)
+			}
+		}
+
+		m := Message{
 			TelegramMsgID: int64(msg.ID),
 			ChatID:        msg.Chat.ID,
 			TopicID:       topicFromMsg(msg),
@@ -157,7 +255,21 @@ func runListen(cmd *cobra.Command, args []string) error {
 			Content:       content,
 			VoicePath:     outPath,
 			Timestamp:     msg.Time().UTC().Format(time.RFC3339),
-		})
+		}
+
+		id, err := db.InsertMessageReturningID(m)
+		if err != nil {
+			return err
+		}
+
+		if listenJSONLPath != "" {
+			m.ID = id
+			if err := appendJSONL(listenJSONLPath, m); err != nil {
+				log.Printf("error writing jsonl: %v", err)
+			}
+		}
+
+		return nil
 	})
 
 	bot.Handle("/chatid", func(c tele.Context) error {

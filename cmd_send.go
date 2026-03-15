@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	tele "gopkg.in/telebot.v4"
@@ -46,6 +48,33 @@ var sendCmd = &cobra.Command{
 			return err
 		}
 		fmt.Printf("{\"message_id\": %d, \"chat_id\": %d}\n", msg.ID, chatID)
+
+		// Store outgoing message in database
+		db, err := OpenDB(dbPath())
+		if err != nil {
+			log.Printf("warning: could not open db to store sent message: %v", err)
+			return nil
+		}
+		defer db.Close()
+
+		var topicID *int64
+		if sendTopicID != 0 {
+			tid := int64(sendTopicID)
+			topicID = &tid
+		}
+
+		if err := db.InsertSentMessage(Message{
+			TelegramMsgID: int64(msg.ID),
+			ChatID:        chatID,
+			TopicID:       topicID,
+			SenderName:    "tg-bot",
+			SenderID:      0,
+			Content:       text,
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			log.Printf("warning: could not store sent message: %v", err)
+		}
+
 		return nil
 	},
 }

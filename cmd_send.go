@@ -10,6 +10,7 @@ import (
 )
 
 var sendTopicID int
+var sendReplyTo int
 
 var sendCmd = &cobra.Command{
 	Use:   "send <chat_id> <message>",
@@ -40,6 +41,9 @@ var sendCmd = &cobra.Command{
 		if sendTopicID != 0 {
 			opts.ThreadID = sendTopicID
 		}
+		if sendReplyTo != 0 {
+			opts.ReplyTo = &tele.Message{ID: sendReplyTo}
+		}
 
 		msg, err := bot.Send(chat, text, opts)
 		if err != nil {
@@ -52,5 +56,6 @@ var sendCmd = &cobra.Command{
 
 func init() {
 	sendCmd.Flags().IntVar(&sendTopicID, "topic", 0, "forum topic ID")
+	sendCmd.Flags().IntVar(&sendReplyTo, "reply-to", 0, "message ID to reply to")
 	rootCmd.AddCommand(sendCmd)
 }

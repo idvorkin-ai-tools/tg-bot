@@ -1,9 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func dbPath() string {
@@ -29,7 +30,9 @@ func ownerID() int64 {
 	if s == "" {
 		return 0
 	}
-	var id int64
-	fmt.Sscanf(s, "%d", &id)
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		log.Fatalf("invalid TGBOT_OWNER_ID %q: %v", s, err)
+	}
 	return id
 }

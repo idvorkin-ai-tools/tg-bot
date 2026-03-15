@@ -79,9 +79,9 @@ func (db *DB) InsertMessageReturningID(m Message) (int64, error) {
 		dir = "in"
 	}
 	res, err := db.conn.Exec(
-		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, voice_path, timestamp, direction)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.VoicePath, m.Timestamp, dir,
+		`INSERT INTO messages (telegram_msg_id, chat_id, topic_id, sender_name, sender_id, content, voice_path, timestamp, direction, read)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.TelegramMsgID, m.ChatID, m.TopicID, m.SenderName, m.SenderID, m.Content, m.VoicePath, m.Timestamp, dir, m.Read,
 	)
 	if err != nil {
 		return 0, err
@@ -91,6 +91,7 @@ func (db *DB) InsertMessageReturningID(m Message) (int64, error) {
 
 func (db *DB) InsertSentMessage(m Message) error {
 	m.Direction = "out"
+	m.Read = 1 // outgoing messages should not appear in poll results
 	return db.InsertMessage(m)
 }
 

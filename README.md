@@ -1,5 +1,17 @@
 # tg-bot: Telegram Bridge for Claude Code
 
+> **🎉 Deprecated — Replaced by Anthropic's official Telegram plugin!**
+>
+> This custom bot has been superseded by the official [Claude Code Telegram channel plugin](https://github.com/anthropics/claude-plugins-official) (under `external_plugins/telegram/`). The official plugin handles everything this bot did — message bridging, file attachments, push notifications — with better integration and zero maintenance on your part.
+>
+> When vibe coding makes building cheap, throwing away working code is easy. This bot served its purpose and has been happily retired. Read the full story in the [AI journal entry](https://idvork.in/ai-journal#telegram-bot-when-the-platform-eats-your-side-project-and-thats-great).
+>
+> **To set up the official plugin:** Enable `telegram@claude-plugins-official` in your Claude Code settings, create a bot via [@BotFather](https://t.me/BotFather), and run `/telegram:configure` with the token. That's it.
+
+---
+
+*Original README preserved below for historical reference.*
+
 A minimal Go CLI that bridges Telegram to Claude Code via SQLite. The bot receives Telegram messages into a local database, and Claude Code polls for new messages and sends replies through simple CLI commands.
 
 ## Architecture
